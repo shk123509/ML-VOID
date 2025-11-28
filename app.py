@@ -1,54 +1,35 @@
 # -------------------------
-# flask_diabetes.py
+# diabetes_predict.py
 # -------------------------
 
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import pandas as pd
 import os
+import pandas as pd
 import joblib
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestRegressor
-
-# -------------------------
-# Flask app
-# -------------------------
-app = Flask(__name__)
-CORS(app, origins=["http://localhost:5173"])  # frontend CORS allow
+from sklearn.metrics import mean_absolute_error, r2_score
 
 # -------------------------
 # File paths
 # -------------------------
 MODEL_FILE = "diabetes_model.pkl"
 PIPELINE_FILE = "diabetes_pipeline.pkl"
-DATA_FILE = "early_prediction_500k.csv"
+DATA_FILE = "early_prediction_500k.csv"  # Your dataset
 
+# -------------------------
+# Columns
+# -------------------------
 NUM_COLS = ["age", "bmi", "systolic_bp", "diastolic_bp", 
             "current_glucose", "fasting_glucose", "hba1c", 
             "physical_activity", "diet_quality"]
 CAT_COLS = ["gender", "smoking", "alcohol", "family_history"]
 
 # -------------------------
-# Glucose → Risk
-# -------------------------
-def glucose_to_risk(glucose):
-    if glucose <= 120:
-        score = (glucose / 120) * 30
-        category = "Low"
-    elif glucose <= 180:
-        score = 30 + ((glucose - 120) / 60) * 40
-        category = "Medium"
-    else:
-        score = 70 + ((glucose - 180) / 50) * 30
-        score = min(score, 100)
-        category = "High"
-    return round(score, 1), category
-
-# -------------------------
-# Build preprocessing pipeline
+# Pipeline function
 # -------------------------
 def build_pipeline(num_cols, cat_cols):
     num_pipeline = Pipeline([
@@ -66,10 +47,11 @@ def build_pipeline(num_cols, cat_cols):
     return full_pipeline
 
 # -------------------------
-# Train or load model
+# Train model if not exists
 # -------------------------
 if not os.path.exists(MODEL_FILE):
     print("Training model...")
+
     df = pd.read_csv(DATA_FILE)
     X = df.drop(["future_glucose_360days"], axis=1)
     y = df["future_glucose_360days"]
@@ -88,29 +70,48 @@ if not os.path.exists(MODEL_FILE):
     joblib.dump(model, MODEL_FILE)
     joblib.dump(pipeline, PIPELINE_FILE)
     print("Model trained and saved.")
+
 else:
+    # -------------------------
+    # Load for inference
+    # -------------------------
     model = joblib.load(MODEL_FILE)
     pipeline = joblib.load(PIPELINE_FILE)
-    print("Model loaded.")
 
-# -------------------------
-# API endpoint
-# -------------------------
-@app.route("/predictssugar", methods=["POST"])
-def predict_glucose():
-    data = request.json  # JSON from frontend
-    input_df = pd.DataFrame([data])
-    input_prepared = pipeline.transform(input_df)
-    pred = model.predict(input_prepared)[0]
-    risk_score, risk_category = glucose_to_risk(pred)
-    return jsonify({
-        "predicted_glucose_360days": f"{round(pred, 2)} mg/dL",
-        "risk_score_percent": risk_score,
-        "risk_category": risk_category
-    })
+    # -------------------------
+    # Get user input
+    # -------------------------
+    age = int(input("Age: "))
+    gender = input("Gender (Male/Female): ")
+    bmi = float(input("BMI: "))
+    sbp = float(input("Systolic BP: "))
+    dbp = float(input("Diastolic BP: "))
+    cg = float(input("Current Glucose: "))
+    fg = float(input("Fasting Glucose: "))
+    hba = float(input("HbA1c: "))
+    pa = int(input("Physical Activity (1-5): "))
+    dq = int(input("Diet Quality (1-5): "))
+    sm = input("Smoking (Yes/No): ")
+    al = input("Alcohol (Yes/No): ")
+    fh = input("Family History (Yes/No): ")
 
-# -------------------------
-# Run Flask app
-# -------------------------
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5500, debug=True)
+    user_df = pd.DataFrame([{
+        "age": age,
+        "gender": gender,
+        "bmi": bmi,
+        "systolic_bp": sbp,
+        "diastolic_bp": dbp,
+        "current_glucose": cg,
+        "fasting_glucose": fg,
+        "hba1c": hba,
+        "physical_activity": pa,
+        "diet_quality": dq,
+        "smoking": sm,
+        "alcohol": al,
+        "family_history": fh
+    }])
+
+    user_prepared = pipeline.transform(user_df)
+    pred = model.predict(user_prepared)[0]
+
+    print(f"\nPredicted Glucose After 360 Days: {round(pred, 2)}")
